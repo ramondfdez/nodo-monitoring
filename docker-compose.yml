@@ -1,39 +1,37 @@
-version: '3.8'
-
 services:
   backend:
     build: ./backend
-    container_name: docker-manager-backend
-    ports:
-      - "8080:8080"
+    container_name: nodo-backend
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - metrics-history:/tmp  # Persistir histórico de métricas
-      # Montar filesystem del host para métricas reales
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /etc/hostname:/host/etc/hostname:ro
+      - ${HOST_PROC_SOURCE:-/tmp}:/host/proc:ro
+      - ${HOST_SYS_SOURCE:-/tmp}:/host/sys:ro
+      - ${HOST_ETC_SOURCE:-/tmp}:/host/etc:ro
     environment:
       - PORT=8080
+      - HOST_PROC=/host/proc
+      - HOST_SYS=/host/sys
+      - HOST_HOSTNAME=/host/etc/hostname
+      - ENABLE_SYSTEM_ACTIONS=${ENABLE_SYSTEM_ACTIONS:-false}
     restart: unless-stopped
     networks:
-      - docker-manager-network
-    # Modo privilegiado necesario para reiniciar el sistema host
-    privileged: true
+      - nodo-network
+    privileged: ${NODO_PRIVILEGED:-false}
 
   frontend:
     build: ./frontend
-    container_name: docker-manager-frontend
+    container_name: nodo-frontend
     ports:
-      - "80:80"
+      - "${WEB_PORT:-8080}:80"
     depends_on:
       - backend
     restart: unless-stopped
     networks:
-      - docker-manager-network
+      - nodo-network
 
 networks:
-  docker-manager-network:
+  nodo-network:
     driver: bridge
 
 volumes:

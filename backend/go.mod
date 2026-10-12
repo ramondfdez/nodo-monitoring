@@ -1,4 +1,4 @@
-module docker-manager
+module nodo
 
 go 1.23.3
 

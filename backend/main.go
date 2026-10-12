@@ -22,6 +22,9 @@ var (
 	prevRxBytes    int64
 	prevTxBytes    int64
 	lastUpdateTime time.Time
+	prevCPUTotal   uint64
+	prevCPUIdle    uint64
+	cpuStatsMutex  sync.Mutex
 )
 
 // Histórico de métricas con timestamps (1 semana de datos, muestreando cada 5 minutos)
@@ -31,16 +34,16 @@ type MetricPoint struct {
 }
 
 type MetricsHistory struct {
-	cpuHistory       []MetricPoint
-	memoryHistory    []MetricPoint
-	lastSaveTime     time.Time
-	mutex            sync.Mutex
+	cpuHistory    []MetricPoint
+	memoryHistory []MetricPoint
+	lastSaveTime  time.Time
+	mutex         sync.Mutex
 }
 
 const (
-	maxHistoryPoints = 2016  // 7 días * 24 horas * 12 (cada 5 minutos) = 2016 puntos
-	saveInterval     = 5 * time.Minute  // Guardar cada 5 minutos
-	historyFilePath  = "/tmp/metrics_history.json"  // Archivo para persistir histórico
+	maxHistoryPoints = 2016                        // 7 días * 24 horas * 12 (cada 5 minutos) = 2016 puntos
+	saveInterval     = 5 * time.Minute             // Guardar cada 5 minutos
+	historyFilePath  = "/tmp/metrics_history.json" // Archivo para persistir histórico
 )
 
 var metricsHistory = &MetricsHistory{
@@ -60,24 +63,24 @@ type HistoryData struct {
 func saveHistoryToFile() error {
 	metricsHistory.mutex.Lock()
 	defer metricsHistory.mutex.Unlock()
-	
+
 	data := HistoryData{
 		CPUHistory:    metricsHistory.cpuHistory,
 		MemoryHistory: metricsHistory.memoryHistory,
 		LastSaveTime:  metricsHistory.lastSaveTime.Unix(),
 	}
-	
+
 	jsonData, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return fmt.Errorf("error serializing history: %v", err)
 	}
-	
+
 	err = ioutil.WriteFile(historyFilePath, jsonData, 0644)
 	if err != nil {
 		return fmt.Errorf("error writing history file: %v", err)
 	}
-	
-	log.Printf("History saved to %s (%d CPU points, %d memory points)", 
+
+	log.Printf("History saved to %s (%d CPU points, %d memory points)",
 		historyFilePath, len(metricsHistory.cpuHistory), len(metricsHistory.memoryHistory))
 	return nil
 }
@@ -93,29 +96,34 @@ func loadHistoryFromFile() {
 		}
 		return
 	}
-	
+
 	var data HistoryData
 	err = json.Unmarshal(file, &data)
 	if err != nil {
 		log.Printf("Error parsing history file: %v", err)
 		return
 	}
-	
+
 	metricsHistory.mutex.Lock()
 	defer metricsHistory.mutex.Unlock()
-	
+
 	metricsHistory.cpuHistory = data.CPUHistory
 	metricsHistory.memoryHistory = data.MemoryHistory
 	metricsHistory.lastSaveTime = time.Unix(data.LastSaveTime, 0)
-	
-	log.Printf("History loaded from %s (%d CPU points, %d memory points)", 
+
+	log.Printf("History loaded from %s (%d CPU points, %d memory points)",
 		historyFilePath, len(metricsHistory.cpuHistory), len(metricsHistory.memoryHistory))
 }
 
 func main() {
+	setDefaultEnv("HOST_PROC", "/proc")
+	setDefaultEnv("HOST_SYS", "/sys")
+	setDefaultEnv("HOST_HOSTNAME", "/etc/hostname")
+	setDefaultEnv("ENABLE_SYSTEM_ACTIONS", "false")
+
 	// Cargar histórico desde archivo (si existe)
 	loadHistoryFromFile()
-	
+
 	router := mux.NewRouter()
 
 	// CORS middleware
@@ -142,6 +150,12 @@ func main() {
 	log.Fatal(http.ListenAndServe(":"+port, router))
 }
 
+func setDefaultEnv(key, fallback string) {
+	if os.Getenv(key) == "" {
+		_ = os.Setenv(key, fallback)
+	}
+}
+
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -157,11 +171,52 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func readCPUUsage() float64 {
+	data, err := os.ReadFile(os.Getenv("HOST_PROC") + "/stat")
+	if err != nil {
+		return 0
+	}
+
+	var user, nice, system, idle, iowait, irq, softirq, steal uint64
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.HasPrefix(line, "cpu ") {
+			continue
+		}
+		if _, err := fmt.Sscanf(line, "cpu %d %d %d %d %d %d %d %d", &user, &nice, &system, &idle, &iowait, &irq, &softirq, &steal); err != nil {
+			return 0
+		}
+		break
+	}
+
+	total := user + nice + system + idle + iowait + irq + softirq + steal
+	idleTotal := idle + iowait
+	cpuStatsMutex.Lock()
+	defer cpuStatsMutex.Unlock()
+	if prevCPUTotal == 0 || total <= prevCPUTotal || idleTotal < prevCPUIdle {
+		prevCPUTotal, prevCPUIdle = total, idleTotal
+		return 0
+	}
+	totalDelta := total - prevCPUTotal
+	idleDelta := idleTotal - prevCPUIdle
+	prevCPUTotal, prevCPUIdle = total, idleTotal
+	if totalDelta == 0 {
+		return 0
+	}
+	usage := (1 - float64(idleDelta)/float64(totalDelta)) * 100
+	if usage < 0 {
+		return 0
+	}
+	if usage > 100 {
+		return 100
+	}
+	return usage
+}
+
 // Añadir valores al histórico (CPU y memoria juntos para mantener sincronización)
 func (mh *MetricsHistory) shouldSave() bool {
 	mh.mutex.Lock()
 	defer mh.mutex.Unlock()
-	
+
 	now := time.Now()
 	return now.Sub(mh.lastSaveTime) >= saveInterval || mh.lastSaveTime.IsZero()
 }
@@ -169,16 +224,16 @@ func (mh *MetricsHistory) shouldSave() bool {
 func (mh *MetricsHistory) addMetrics(cpuValue, memoryValue float64) bool {
 	mh.mutex.Lock()
 	defer mh.mutex.Unlock()
-	
+
 	now := time.Now()
 	// Solo guardar si pasó el intervalo o es la primera vez
 	if now.Sub(mh.lastSaveTime) < saveInterval && !mh.lastSaveTime.IsZero() {
 		return false
 	}
-	
+
 	timestamp := now.Unix()
 	mh.lastSaveTime = now
-	
+
 	// Añadir CPU
 	mh.cpuHistory = append(mh.cpuHistory, MetricPoint{
 		Value:     cpuValue,
@@ -187,7 +242,7 @@ func (mh *MetricsHistory) addMetrics(cpuValue, memoryValue float64) bool {
 	if len(mh.cpuHistory) > maxHistoryPoints {
 		mh.cpuHistory = mh.cpuHistory[1:]
 	}
-	
+
 	// Añadir memoria
 	mh.memoryHistory = append(mh.memoryHistory, MetricPoint{
 		Value:     memoryValue,
@@ -196,14 +251,14 @@ func (mh *MetricsHistory) addMetrics(cpuValue, memoryValue float64) bool {
 	if len(mh.memoryHistory) > maxHistoryPoints {
 		mh.memoryHistory = mh.memoryHistory[1:]
 	}
-	
+
 	return true
 }
 
 func (mh *MetricsHistory) getCPUHistory() []MetricPoint {
 	mh.mutex.Lock()
 	defer mh.mutex.Unlock()
-	
+
 	// Devolver copia para evitar race conditions
 	history := make([]MetricPoint, len(mh.cpuHistory))
 	copy(history, mh.cpuHistory)
@@ -213,7 +268,7 @@ func (mh *MetricsHistory) getCPUHistory() []MetricPoint {
 func (mh *MetricsHistory) getMemoryHistory() []MetricPoint {
 	mh.mutex.Lock()
 	defer mh.mutex.Unlock()
-	
+
 	// Devolver copia para evitar race conditions
 	history := make([]MetricPoint, len(mh.memoryHistory))
 	copy(history, mh.memoryHistory)
@@ -224,7 +279,7 @@ func listContainers(w http.ResponseWriter, r *http.Request) {
 	cmd := exec.Command("docker", "ps", "-a", "--format", "{{json .}}")
 	var out bytes.Buffer
 	cmd.Stdout = &out
-	
+
 	if err := cmd.Run(); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -232,7 +287,7 @@ func listContainers(w http.ResponseWriter, r *http.Request) {
 
 	var containerInfos []map[string]interface{}
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
-	
+
 	// Get stats for all running containers
 	statsMap := make(map[string]map[string]string)
 	statsCmd := exec.Command("docker", "stats", "--no-stream", "--format", "{{.Container}}|{{.CPUPerc}}|{{.MemPerc}}|{{.MemUsage}}")
@@ -247,14 +302,14 @@ func listContainers(w http.ResponseWriter, r *http.Request) {
 			parts := strings.Split(line, "|")
 			if len(parts) >= 4 {
 				statsMap[parts[0]] = map[string]string{
-					"cpu":    strings.TrimSpace(parts[1]),
-					"mem":    strings.TrimSpace(parts[2]),
-					"usage":  strings.TrimSpace(parts[3]),
+					"cpu":   strings.TrimSpace(parts[1]),
+					"mem":   strings.TrimSpace(parts[2]),
+					"usage": strings.TrimSpace(parts[3]),
 				}
 			}
 		}
 	}
-	
+
 	for _, line := range lines {
 		if line == "" {
 			continue
@@ -263,9 +318,9 @@ func listContainers(w http.ResponseWriter, r *http.Request) {
 		if err := json.Unmarshal([]byte(line), &container); err != nil {
 			continue
 		}
-		
+
 		containerID := container["ID"].(string)
-		
+
 		// Transformar al formato esperado por el frontend
 		normalized := map[string]interface{}{
 			"id":      containerID,
@@ -275,7 +330,7 @@ func listContainers(w http.ResponseWriter, r *http.Request) {
 			"status":  container["Status"],
 			"created": container["CreatedAt"],
 		}
-		
+
 		// Add stats if available (only for running containers)
 		if stats, ok := statsMap[containerID]; ok {
 			normalized["cpu_percent"] = stats["cpu"]
@@ -286,7 +341,7 @@ func listContainers(w http.ResponseWriter, r *http.Request) {
 			normalized["mem_percent"] = "0%"
 			normalized["mem_usage"] = "0 B"
 		}
-		
+
 		containerInfos = append(containerInfos, normalized)
 	}
 
@@ -359,7 +414,7 @@ func getContainerLogs(w http.ResponseWriter, r *http.Request) {
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
-	
+
 	if err := cmd.Run(); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -374,7 +429,7 @@ func getSystemStats(w http.ResponseWriter, r *http.Request) {
 	stats := make(map[string]interface{})
 
 	// Hostname (from host system)
-	hostnameCmd := exec.Command("sh", "-c", "cat /host/etc/hostname 2>/dev/null || hostname")
+	hostnameCmd := exec.Command("sh", "-c", "cat $HOST_HOSTNAME 2>/dev/null || hostname")
 	var hostnameOut bytes.Buffer
 	hostnameCmd.Stdout = &hostnameOut
 	if err := hostnameCmd.Run(); err == nil {
@@ -384,7 +439,7 @@ func getSystemStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Uptime (from host /proc/uptime)
-	uptimeCmd := exec.Command("sh", "-c", "cat /host/proc/uptime | cut -d' ' -f1 | awk '{days=int($1/86400); hours=int(($1%86400)/3600); if(days>0) printf \"%dd %dh\", days, hours; else printf \"%dh\", hours}'")
+	uptimeCmd := exec.Command("sh", "-c", "cat $HOST_PROC/uptime | cut -d' ' -f1 | awk '{days=int($1/86400); hours=int(($1%86400)/3600); if(days>0) printf \"%dd %dh\", days, hours; else printf \"%dh\", hours}'")
 	var uptimeOut bytes.Buffer
 	uptimeCmd.Stdout = &uptimeOut
 	if err := uptimeCmd.Run(); err == nil {
@@ -399,7 +454,7 @@ func getSystemStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load Average (from host)
-	loadCmd := exec.Command("sh", "-c", "cat /host/proc/loadavg | cut -d' ' -f1")
+	loadCmd := exec.Command("sh", "-c", "cat $HOST_PROC/loadavg | cut -d' ' -f1")
 	var loadOut bytes.Buffer
 	loadCmd.Stdout = &loadOut
 	if err := loadCmd.Run(); err == nil {
@@ -408,56 +463,10 @@ func getSystemStats(w http.ResponseWriter, r *http.Request) {
 		stats["load_average"] = "0.0"
 	}
 
-	// CPU usage (from /proc/stat - more accurate than load average)
-	// Get number of CPU cores
-	cpuCountCmd := exec.Command("sh", "-c", "grep -c processor /host/proc/cpuinfo")
-	var cpuCountOut bytes.Buffer
-	cpuCountCmd.Stdout = &cpuCountOut
-	numCPUs := 4 // Default fallback
-	if err := cpuCountCmd.Run(); err == nil {
-		if count, err := strconv.Atoi(strings.TrimSpace(cpuCountOut.String())); err == nil && count > 0 {
-			numCPUs = count
-		}
-	}
-
-	// Calculate CPU usage from load average as percentage
-	// Load average represents average number of processes in run queue
-	// Divide by number of CPUs and multiply by 100 for percentage
-	// Use float format to avoid truncating small values
-	cpuCmd := exec.Command("sh", "-c", fmt.Sprintf("cat /host/proc/loadavg | cut -d' ' -f1 | awk '{printf \"%%.2f\", ($1 / %d) * 100}'", numCPUs))
-	var cpuOut bytes.Buffer
-	cpuCmd.Stdout = &cpuOut
-	if err := cpuCmd.Run(); err == nil {
-		cpuUsage := strings.TrimSpace(cpuOut.String())
-		if cpuUsage != "" {
-			// Validate and cap at 100%
-			if cpuVal, err := strconv.ParseFloat(cpuUsage, 64); err == nil {
-				if cpuVal > 100 {
-					cpuVal = 100
-				}
-				stats["cpu_usage"] = fmt.Sprintf("%.2f", cpuVal)
-			} else {
-				stats["cpu_usage"] = "0.00"
-			}
-		} else {
-			stats["cpu_usage"] = "0.00"
-		}
-	} else {
-		// Fallback: use load average directly
-		loadStr := stats["load_average"].(string)
-		if loadVal, err := strconv.ParseFloat(loadStr, 64); err == nil {
-			cpuPercent := (loadVal / float64(numCPUs)) * 100
-			if cpuPercent > 100 {
-				cpuPercent = 100
-			}
-			stats["cpu_usage"] = fmt.Sprintf("%.2f", cpuPercent)
-		} else {
-			stats["cpu_usage"] = "0.00"
-		}
-	}
+	stats["cpu_usage"] = fmt.Sprintf("%.2f", readCPUUsage())
 
 	// Memory usage (from host using /proc/meminfo for more accuracy)
-	memTotalCmd := exec.Command("sh", "-c", "grep MemTotal /host/proc/meminfo | awk '{print int($2/1024)}'")
+	memTotalCmd := exec.Command("sh", "-c", "grep MemTotal $HOST_PROC/meminfo | awk '{print int($2/1024)}'")
 	var memTotalOut bytes.Buffer
 	memTotalCmd.Stdout = &memTotalOut
 	if err := memTotalCmd.Run(); err == nil {
@@ -472,7 +481,7 @@ func getSystemStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get available memory from host
-	memAvailCmd := exec.Command("sh", "-c", "grep MemAvailable /host/proc/meminfo | awk '{print int($2/1024)}'")
+	memAvailCmd := exec.Command("sh", "-c", "grep MemAvailable $HOST_PROC/meminfo | awk '{print int($2/1024)}'")
 	var memAvailOut bytes.Buffer
 	memAvailCmd.Stdout = &memAvailOut
 	if err := memAvailCmd.Run(); err == nil {
@@ -534,10 +543,10 @@ func getSystemStats(w http.ResponseWriter, r *http.Request) {
 	// Try to get default interface, fallback to first active interface
 	netCmd := exec.Command("sh", "-c", `
 		# Try default route first
-		iface=$(cat /host/proc/net/route | awk 'NR==2 {print $1}')
+		iface=$(cat $HOST_PROC/net/route | awk 'NR==2 {print $1}')
 		if [ -z "$iface" ] || [ "$iface" = "Iface" ]; then
 			# Fallback: find first non-loopback interface with an IP
-			iface=$(ls /host/sys/class/net/ | grep -v lo | head -1)
+			iface=$(ls $HOST_SYS/class/net/ | grep -v lo | head -1)
 		fi
 		echo "$iface"
 	`)
@@ -558,7 +567,7 @@ func getSystemStats(w http.ResponseWriter, r *http.Request) {
 
 	// Network speed (download/upload in Mbps)
 	iface := defaultIface
-	
+
 	// Calculate time difference
 	now := time.Now()
 	timeDiff := now.Sub(lastUpdateTime).Seconds()
@@ -568,7 +577,7 @@ func getSystemStats(w http.ResponseWriter, r *http.Request) {
 	lastUpdateTime = now
 
 	// Download speed (RX) - read from host /sys
-	downloadCmd := exec.Command("sh", "-c", fmt.Sprintf("cat /host/sys/class/net/%s/statistics/rx_bytes 2>/dev/null || echo 0", iface))
+	downloadCmd := exec.Command("sh", "-c", fmt.Sprintf("cat $HOST_SYS/class/net/%s/statistics/rx_bytes 2>/dev/null || echo 0", iface))
 	var downloadOut bytes.Buffer
 	downloadCmd.Stdout = &downloadOut
 	if err := downloadCmd.Run(); err == nil {
@@ -599,7 +608,7 @@ func getSystemStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Upload speed (TX) - read from host /sys
-	uploadCmd := exec.Command("sh", "-c", fmt.Sprintf("cat /host/sys/class/net/%s/statistics/tx_bytes 2>/dev/null || echo 0", iface))
+	uploadCmd := exec.Command("sh", "-c", fmt.Sprintf("cat $HOST_SYS/class/net/%s/statistics/tx_bytes 2>/dev/null || echo 0", iface))
 	var uploadOut bytes.Buffer
 	uploadCmd.Stdout = &uploadOut
 	if err := uploadCmd.Run(); err == nil {
@@ -631,7 +640,7 @@ func getSystemStats(w http.ResponseWriter, r *http.Request) {
 	// Temperature (from host - works on Raspberry Pi/Orange Pi)
 	// Try multiple thermal zones
 	tempCmd := exec.Command("sh", "-c", `
-		for zone in /host/sys/class/thermal/thermal_zone*/temp; do
+		for zone in $HOST_SYS/class/thermal/thermal_zone*/temp; do
 			if [ -r "$zone" ]; then
 				cat "$zone" | awk '{printf "%.1f", $1/1000}' 2>/dev/null && break
 			fi
@@ -703,7 +712,7 @@ func getSystemStats(w http.ResponseWriter, r *http.Request) {
 
 	// Guardar valores actuales en el histórico
 	cpuValue, _ := strconv.ParseFloat(stats["cpu_usage"].(string), 64)
-	
+
 	// Calcular porcentaje de memoria
 	memUsed, _ := strconv.ParseFloat(stats["memory_used_mb"].(string), 64)
 	memTotal, _ := strconv.ParseFloat(stats["memory_total_mb"].(string), 64)
@@ -711,10 +720,10 @@ func getSystemStats(w http.ResponseWriter, r *http.Request) {
 	if memTotal > 0 {
 		memPercent = (memUsed / memTotal) * 100
 	}
-	
+
 	// Añadir ambas métricas juntas (mantiene sincronización)
 	metricsAdded := metricsHistory.addMetrics(cpuValue, memPercent)
-	
+
 	// Si se añadió un nuevo punto, guardar en archivo
 	if metricsAdded {
 		go func() {
@@ -723,7 +732,7 @@ func getSystemStats(w http.ResponseWriter, r *http.Request) {
 			}
 		}()
 	}
-	
+
 	// Añadir históricos a la respuesta
 	stats["cpu_history"] = metricsHistory.getCPUHistory()
 	stats["memory_history"] = metricsHistory.getMemoryHistory()
@@ -762,11 +771,16 @@ func getProcesses(w http.ResponseWriter, r *http.Request) {
 }
 
 func rebootSystem(w http.ResponseWriter, r *http.Request) {
+	if os.Getenv("ENABLE_SYSTEM_ACTIONS") != "true" {
+		http.Error(w, "system actions are disabled for this deployment", http.StatusNotImplemented)
+		return
+	}
+
 	// Schedule system reboot with delay to allow response
 	go func() {
 		// Wait 2 seconds to ensure response is sent
 		time.Sleep(2 * time.Second)
-		
+
 		// Reboot using busybox command (available in Alpine)
 		// Requires privileged: true in docker-compose.yml
 		cmd := exec.Command("reboot")
@@ -786,6 +800,11 @@ func rebootSystem(w http.ResponseWriter, r *http.Request) {
 }
 
 func updateSystem(w http.ResponseWriter, r *http.Request) {
+	if os.Getenv("ENABLE_SYSTEM_ACTIONS") != "true" {
+		http.Error(w, "system actions are disabled for this deployment", http.StatusNotImplemented)
+		return
+	}
+
 	// Run system update in background
 	go func() {
 		log.Println("Starting system update...")
@@ -793,7 +812,7 @@ func updateSystem(w http.ResponseWriter, r *http.Request) {
 		var out bytes.Buffer
 		cmd.Stdout = &out
 		cmd.Stderr = &out
-		
+
 		if err := cmd.Run(); err != nil {
 			log.Printf("Update error: %s\nOutput: %s", err.Error(), out.String())
 		} else {

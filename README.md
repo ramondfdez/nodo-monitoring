@@ -1,113 +1,151 @@
-# 🐳 Docker Manager
+# NODO
 
-Aplicación web ligera para gestionar contenedores Docker en tu Orange Pi. Diseñada para ser responsive y consumir mínimos recursos.
+## Edge Control para Docker
 
-## 🎯 Características
+NODO es un panel ligero de observabilidad y operación para equipos que ejecutan Docker. Presenta en una sola interfaz el estado del nodo, métricas de rendimiento, contenedores, procesos y logs.
 
-- ✅ Ver estado de todos los contenedores Docker
-- ▶️ Iniciar/Detener/Reiniciar contenedores
-- 📋 Ver logs de contenedores (últimas 100 líneas)
-- 📱 Diseño responsive optimizado para móvil
-- ⚡ Muy ligero: Backend en Go + Frontend estático
-- 🔄 Auto-actualización cada 10 segundos
+Está diseñado para funcionar con el mismo `docker-compose.yml` en Docker Desktop para macOS, Linux y dispositivos ARM como OrangePi.
 
-## 🏗️ Arquitectura
+## Qué incluye
 
-- **Backend**: Go + API REST (se comunica con Docker Engine)
-- **Frontend**: HTML/CSS/JavaScript vanilla (sin frameworks)
-- **Deployment**: Docker Compose con imágenes Alpine
+- Dashboard operativo con CPU, memoria, disco, red, temperatura y uptime.
+- Histórico de CPU y memoria con persistencia en un volumen Docker.
+- Listado de contenedores activos y detenidos.
+- Búsqueda y filtros por estado.
+- Acciones para iniciar, detener, reiniciar y eliminar contenedores.
+- Consulta de los últimos logs de cada contenedor.
+- Tabla de procesos ordenada por consumo de CPU.
+- Actualización automática cada 5 segundos.
+- Interfaz responsive para escritorio, tablet y móvil.
+- Proxy interno de API mediante Nginx.
 
-## 📋 Requisitos
+## Arquitectura
 
-- Docker y Docker Compose instalados en tu Orange Pi
-- Mínimo 512MB RAM disponible
-- Acceso a `/var/run/docker.sock`
-
-## 🚀 Instalación
-
-### 1. Clonar o copiar el proyecto a tu Orange Pi
-
-```bash
-git clone <tu-repo> docker-manager
-cd docker-manager
+```text
+Navegador
+    |
+    | HTTP : WEB_PORT
+    v
+Nginx / Frontend  ------ /api ------>  Backend Go
+                                         |
+                                         +--> Docker Engine
+                                         +--> Métricas del host (opcional)
+                                         +--> Histórico en volumen Docker
 ```
 
-### 2. Construir y levantar los contenedores
+| Componente | Tecnología | Función |
+| --- | --- | --- |
+| Frontend | HTML, CSS y JavaScript | Interfaz responsive y gráficas |
+| Servidor web | Nginx | Archivos estáticos y proxy `/api` |
+| Backend | Go + Gorilla Mux | API REST y operaciones Docker |
+| Persistencia | Volumen Docker | Histórico de métricas |
+
+## Requisitos
+
+- Docker Engine y Compose, o Docker Desktop en macOS.
+- Acceso al socket `/var/run/docker.sock`.
+- 512 MB de RAM disponibles como referencia mínima.
+- Red local entre el equipo que ejecuta NODO y el móvil o navegador cliente.
+
+## Inicio rápido
+
+### macOS, Linux o Docker Desktop
+
+La configuración base es portable y mantiene desactivadas las acciones de mantenimiento del sistema anfitrión.
 
 ```bash
+git clone <tu-repositorio> nodo
+cd nodo
+WEB_PORT=8080 docker-compose up -d --build
+```
+
+Abre:
+
+```text
+http://localhost:8080
+```
+
+Desde otro dispositivo de la misma red, sustituye `localhost` por la IP del equipo que ejecuta Docker:
+
+```text
+http://IP_DEL_EQUIPO:8080
+```
+
+### OrangePi Linux
+
+En Linux puedes habilitar métricas reales del host y las acciones de mantenimiento usando el mismo Compose:
+
+```bash
+WEB_PORT=80 \
+HOST_PROC_SOURCE=/proc \
+HOST_SYS_SOURCE=/sys \
+HOST_ETC_SOURCE=/etc \
+NODO_PRIVILEGED=true \
+ENABLE_SYSTEM_ACTIONS=true \
 docker-compose up -d --build
 ```
 
-Esto construirá ambas imágenes (backend y frontend) y levantará los contenedores.
+Después, accede desde el móvil o cualquier equipo de la red:
 
-### 3. Acceder a la aplicación
-
-Abre tu navegador (desde móvil o PC) y accede a:
-
-```
-http://<IP-de-tu-OrangePi>
+```text
+http://IP_DE_LA_ORANGEPI
 ```
 
-Por ejemplo: `http://192.168.1.100`
+> En instalaciones nuevas, `docker compose` es el comando moderno equivalente a `docker-compose`.
 
-## 🔧 Configuración
+## Variables de configuración
 
-### Cambiar el puerto del frontend
+Todas las variables son opcionales. La configuración base funciona sin definirlas.
 
-Edita `docker-compose.yml` y cambia el puerto 80:
+| Variable | Valor por defecto | Uso |
+| --- | --- | --- |
+| `WEB_PORT` | `8080` | Puerto público del frontend Nginx |
+| `HOST_PROC_SOURCE` | `/tmp` | Directorio del host que se monta como `/host/proc` |
+| `HOST_SYS_SOURCE` | `/tmp` | Directorio del host que se monta como `/host/sys` |
+| `HOST_ETC_SOURCE` | `/tmp` | Directorio del host que se monta como `/host/etc` |
+| `NODO_PRIVILEGED` | `false` | Habilita privilegios adicionales del backend |
+| `ENABLE_SYSTEM_ACTIONS` | `false` | Permite reiniciar o actualizar el sistema anfitrión |
 
-```yaml
-frontend:
-  ports:
-    - "3000:80"  # Ahora accedes por el puerto 3000
-```
+Las tres variables `HOST_*_SOURCE`, junto con `NODO_PRIVILEGED=true` y `ENABLE_SYSTEM_ACTIONS=true`, solo deben activarse en un host Linux controlado, como la OrangePi.
 
-### Cambiar el puerto del backend
+El backend no se publica directamente en el host. Nginx recibe las peticiones del navegador y reenvía internamente las rutas `/api` al servicio Go.
 
-Edita `docker-compose.yml`:
+## Acceso remoto
 
-```yaml
-backend:
-  ports:
-    - "9090:8080"
-  environment:
-    - PORT=8080
-```
+Para acceder desde fuera de la red local, utiliza una red privada como:
 
-Y actualiza `frontend/app.js` línea 2:
+- Tailscale.
+- WireGuard.
+- Una VPN equivalente administrada por ti.
 
-```javascript
-const API_URL = `http://${window.location.hostname}:9090/api`;
-```
+No publiques directamente el puerto de NODO en Internet. El backend tiene acceso operativo al socket de Docker y debe tratarse como una consola de administración, no como una web pública.
 
-## 📱 Uso desde móvil
+Si necesitas exponerlo públicamente, añade como mínimo:
 
-1. Asegúrate de estar en la misma red Wi-Fi que tu Orange Pi
-2. Accede desde el navegador del móvil: `http://IP-Orange-Pi`
-3. Guarda la página en tu pantalla de inicio para acceso rápido
+1. HTTPS con certificados válidos.
+2. Autenticación delante de Nginx.
+3. Firewall con allowlist de IPs.
+4. Registro y monitorización de accesos.
 
-## 🛠️ Comandos útiles
+## Operaciones habituales
 
-### Ver logs en tiempo real
+### Ver estado de los servicios
 
 ```bash
-# Logs del backend
-docker logs -f docker-manager-backend
+docker-compose ps
+```
 
-# Logs del frontend
-docker logs -f docker-manager-frontend
+### Ver logs
+
+```bash
+docker-compose logs -f backend
+docker-compose logs -f frontend
 ```
 
 ### Reiniciar la aplicación
 
 ```bash
 docker-compose restart
-```
-
-### Detener la aplicación
-
-```bash
-docker-compose down
 ```
 
 ### Actualizar después de cambios
@@ -117,91 +155,85 @@ docker-compose down
 docker-compose up -d --build
 ```
 
-### Ver recursos consumidos
+### Detener la aplicación
 
 ```bash
-docker stats docker-manager-backend docker-manager-frontend
+docker-compose down
 ```
 
-## 🔒 Seguridad
-
-⚠️ **Importante**: Esta aplicación está diseñada para uso en red local. No expongas directamente a Internet sin:
-
-1. Agregar autenticación (usuario/contraseña)
-2. Usar HTTPS/TLS
-3. Configurar un firewall
-
-### Agregar autenticación básica (opcional)
-
-Puedes usar autenticación básica de Nginx. Edita `frontend/nginx.conf`:
-
-```nginx
-server {
-    listen 80;
-    
-    auth_basic "Docker Manager";
-    auth_basic_user_file /etc/nginx/.htpasswd;
-    
-    # ... resto de configuración
-}
-```
-
-Y genera el archivo de contraseñas:
+### Ver consumo de NODO
 
 ```bash
-htpasswd -c .htpasswd admin
+docker stats nodo-backend nodo-frontend
 ```
 
-## 🐛 Solución de problemas
+## Seguridad y permisos
 
-### El backend no puede conectar con Docker
+NODO monta `/var/run/docker.sock` para poder consultar y operar contenedores. Este socket equivale, en la práctica, a un nivel elevado de control sobre Docker.
 
-Verifica que el socket de Docker esté montado correctamente:
+Recomendaciones:
+
+- Mantener NODO dentro de una red privada.
+- No publicar el backend directamente.
+- No activar `NODO_PRIVILEGED` ni `ENABLE_SYSTEM_ACTIONS` en macOS o entornos no controlados.
+- Proteger el acceso remoto mediante VPN.
+- Añadir autenticación y HTTPS antes de cualquier exposición pública.
+
+## Solución de problemas
+
+### La página no carga
+
+Comprueba que el frontend está activo y que el puerto publicado coincide con `WEB_PORT`:
 
 ```bash
-docker inspect docker-manager-backend | grep docker.sock
+docker-compose ps
+curl http://localhost:8080
 ```
 
-### El frontend no puede conectar con el backend
+Si usaste otro puerto, sustituye `8080` en la URL.
 
-1. Verifica que ambos contenedores estén en la misma red
-2. Revisa la URL de la API en `frontend/app.js`
-3. Comprueba que el puerto 8080 esté abierto
+### La API no responde
 
-### Contenedores que no aparecen
-
-El backend lista TODOS los contenedores (incluyendo detenidos). Si no aparecen:
+Revisa los logs del backend y confirma que ambos servicios comparten la red Compose:
 
 ```bash
-docker ps -a  # Verifica que haya contenedores
-docker logs docker-manager-backend  # Revisa logs del backend
+docker-compose logs backend
+docker-compose config
 ```
 
-## 📊 Rendimiento
+### No aparecen contenedores
 
-En una Orange Pi Zero con 512MB RAM:
+Comprueba el socket de Docker y el acceso desde el backend:
 
-- Backend: ~15-20 MB RAM
-- Frontend (Nginx): ~5-10 MB RAM
-- CPU: < 1% en idle
-- Tiempo de respuesta: < 100ms
-
-## 🔄 Actualización automática
-
-La interfaz se actualiza automáticamente cada 10 segundos. Puedes cambiar este intervalo en `frontend/app.js` línea 15:
-
-```javascript
-setInterval(loadContainers, 30000); // 30 segundos
+```bash
+docker inspect nodo-backend | grep docker.sock
+docker ps -a
 ```
 
-## 🤝 Contribuciones
+### Las métricas del host aparecen vacías
 
-¿Mejoras? ¡PRs bienvenidos!
+En macOS y en el modo base son esperables métricas limitadas del host, porque Docker Desktop ejecuta los contenedores dentro de una máquina virtual. En OrangePi, arranca con:
 
-## 📝 Licencia
+```bash
+HOST_PROC_SOURCE=/proc HOST_SYS_SOURCE=/sys HOST_ETC_SOURCE=/etc \
+NODO_PRIVILEGED=true ENABLE_SYSTEM_ACTIONS=true \
+WEB_PORT=80 docker-compose up -d --build
+```
 
-MIT License - Usa y modifica libremente
+### Las acciones del sistema devuelven `501`
 
----
+Es el comportamiento esperado cuando `ENABLE_SYSTEM_ACTIONS=false`. Solo se habilitan explícitamente en el despliegue Linux de confianza.
 
-**Hecho con ❤️ para Orange Pi y dispositivos con recursos limitados**
+## Desarrollo local
+
+Validaciones disponibles:
+
+```bash
+node --check frontend/app.js
+cd backend && go test ./...
+cd .. && docker-compose config
+```
+
+## Licencia
+
+MIT. Usa, adapta y despliega NODO libremente.

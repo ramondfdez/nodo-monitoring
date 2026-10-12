@@ -3,251 +3,62 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Server Manager - Orange Pi</title>
-    <link rel="stylesheet" href="styles.css?v=3">
+    <meta name="theme-color" content="#101417">
+    <title>NODO · Edge control</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css?v=6">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
 </head>
 <body>
-    <div class="app-container">
-        <!-- Sidebar -->
+    <div class="app-shell">
         <aside class="sidebar" id="sidebar">
-            <div class="sidebar-header">
-                <span class="logo-icon">🐳</span>
-            </div>
-            
-            <nav class="sidebar-nav">
-                <button class="nav-item active" data-tab="dashboard" onclick="switchTab('dashboard')" title="Dashboard">
-                    <span class="nav-icon">📊</span>
-                </button>
-                <button class="nav-item" data-tab="containers" onclick="switchTab('containers')" title="Contenedores">
-                    <span class="nav-icon">📦</span>
-                </button>
-                <button class="nav-item" data-tab="processes" onclick="switchTab('processes')" title="Procesos">
-                    <span class="nav-icon">⚙️</span>
-                </button>
+            <div class="brand"><div class="brand-mark">N</div><div class="brand-copy"><strong>NODO</strong><span>EDGE CONTROL</span></div></div>
+            <div class="sidebar-label">Workspace</div>
+            <nav class="nav-list" aria-label="Navegación principal">
+                <button class="nav-item active" data-tab="dashboard" title="Resumen"><i data-lucide="layout-dashboard"></i><span>Resumen</span></button>
+                <button class="nav-item" data-tab="containers" title="Contenedores"><i data-lucide="box"></i><span>Contenedores</span><b id="nav-container-count">0</b></button>
+                <button class="nav-item" data-tab="processes" title="Procesos"><i data-lucide="activity"></i><span>Procesos</span></button>
             </nav>
+            <div class="sidebar-footer"><div class="connection-mini"><span class="status-dot" id="connection-dot"></span><span id="connection-text">Conectando...</span></div><div class="sidebar-version">NODO v2.0</div></div>
         </aside>
-
-        <!-- Main Content -->
         <main class="main-content">
-            <header class="top-header">
-                <div class="header-content">
-                    <h1 id="page-title">Dashboard del Sistema</h1>
-                    <p class="subtitle" id="page-subtitle">Monitoreo en tiempo real</p>
-                </div>
-            </header>
-
-            <!-- Dashboard Tab -->
-            <div id="dashboard-tab" class="tab-content active">
-                <!-- System Info Header -->
-                <div class="system-info-banner">
-                    <div class="system-info-item">
-                        <span class="info-icon">💻</span>
-                        <div class="info-content">
-                            <span class="info-label">Hostname</span>
-                            <span class="info-value" id="hostname">-</span>
-                        </div>
+            <header class="topbar"><div class="mobile-brand"><div class="brand-mark">N</div><strong>NODO</strong></div><div class="breadcrumb"><span>Infraestructura</span><i data-lucide="chevron-right"></i><strong id="page-title">Resumen</strong></div><div class="topbar-actions"><span class="last-update" id="last-update">Sincronizando</span><button class="icon-button" id="refresh-btn" title="Actualizar datos" aria-label="Actualizar datos"><i data-lucide="refresh-cw"></i></button><div class="avatar">OP</div></div></header>
+            <div class="page-body">
+                <section id="dashboard-tab" class="tab-content active">
+                    <div class="page-heading"><div><p class="eyebrow">CENTRO DE OPERACIONES</p><h1>Todo bajo control.</h1><p class="heading-copy">Una lectura clara del estado de tu nodo local, sin ruido.</p></div><div class="system-chip"><span class="status-dot"></span><div><b id="hostname">Detectando nodo</b><small id="local-ip">--</small></div></div></div>
+                    <section class="hero-panel"><div class="hero-main"><div class="hero-kicker"><i data-lucide="server"></i> NODO ACTIVO</div><h2 id="hero-hostname">--</h2><p>Operativo durante <strong id="uptime">--</strong></p></div><div class="hero-details"><div><span>Temperatura</span><b id="temperature">--</b></div><div><span>Interfaz</span><b id="network-interface">--</b></div><div><span>Load average</span><b id="cpu-load">--</b></div></div><div class="hero-orbit"><div class="orbit-ring"></div><i data-lucide="activity"></i><span>LIVE</span></div></section>
+                    <div class="section-heading"><div><p class="eyebrow">SALUD DEL SISTEMA</p><h2>Recursos en tiempo real</h2></div><span class="refresh-note"><span class="status-dot"></span> Actualiza cada 5 segundos</span></div>
+                    <div class="metrics-grid">
+                        <article class="metric-card accent-cyan"><div class="metric-top"><span>Procesador</span><i data-lucide="cpu"></i></div><strong id="cpu-value">0%</strong><div class="metric-foot"><span id="cpu-load-detail">Carga normal</span><span class="metric-bar"><em id="cpu-bar"></em></span></div></article>
+                        <article class="metric-card accent-lime"><div class="metric-top"><span>Memoria RAM</span><i data-lucide="memory-stick"></i></div><strong id="memory-value">0 MB</strong><div class="metric-foot"><span id="memory-total">-- disponible</span><span class="metric-bar"><em id="memory-bar"></em></span></div></article>
+                        <article class="metric-card accent-amber"><div class="metric-top"><span>Almacenamiento</span><i data-lucide="hard-drive"></i></div><strong id="disk-value">0%</strong><div class="metric-foot"><span id="disk-space">-- usado</span><span class="metric-bar"><em id="disk-bar"></em></span></div></article>
+                        <article class="metric-card accent-blue"><div class="metric-top"><span>Contenedores</span><i data-lucide="boxes"></i></div><strong id="containers-running">0 <small>activos</small></strong><div class="metric-foot"><span id="containers-total">0 en total</span><a href="#" data-tab-link="containers">Ver todos <i data-lucide="arrow-up-right"></i></a></div></article>
                     </div>
-                    <div class="system-info-item">
-                        <span class="info-icon">⏱️</span>
-                        <div class="info-content">
-                            <span class="info-label">Uptime</span>
-                            <span class="info-value" id="uptime">-</span>
-                        </div>
+                    <div class="charts-grid">
+                        <article class="panel chart-panel"><div class="panel-header"><div><p class="eyebrow">RENDIMIENTO</p><h3>Procesador</h3></div><div class="chart-reading"><strong id="cpu-chart-reading">0%</strong><span>ahora</span></div></div><div class="chart-wrap"><canvas id="cpuChart"></canvas></div><div class="chart-caption"><span><i class="legend-dot cyan"></i> Uso de CPU</span><span>Últimas muestras</span></div></article>
+                        <article class="panel chart-panel"><div class="panel-header"><div><p class="eyebrow">CAPACIDAD</p><h3>Memoria utilizada</h3></div><div class="chart-reading"><strong id="memory-chart-reading">0%</strong><span>ahora</span></div></div><div class="chart-wrap"><canvas id="memoryChart"></canvas></div><div class="chart-caption"><span><i class="legend-dot lime"></i> RAM ocupada</span><span>Últimas muestras</span></div></article>
                     </div>
-                    <div class="system-info-item">
-                        <span class="info-icon">🌐</span>
-                        <div class="info-content">
-                            <span class="info-label">IP Local</span>
-                            <span class="info-value" id="local-ip">-</span>
-                        </div>
-                    </div>
-                    <div class="system-info-item">
-                        <span class="info-icon">🌡️</span>
-                        <div class="info-content">
-                            <span class="info-label">Temperatura</span>
-                            <span class="info-value" id="temperature">-</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Stats Cards -->
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <div class="stat-icon cpu">💻</div>
-                        <div class="stat-details">
-                            <div class="stat-label">Uso de CPU</div>
-                            <div class="stat-value" id="cpu-value">0%</div>
-                            <div class="stat-change" id="cpu-load">Load: 0.00</div>
-                        </div>
-                    </div>
-
-                    <div class="stat-card">
-                        <div class="stat-icon memory">🧠</div>
-                        <div class="stat-details">
-                            <div class="stat-label">Memoria RAM</div>
-                            <div class="stat-value" id="memory-value">0 MB</div>
-                            <div class="stat-change" id="memory-total">de 0 MB</div>
-                        </div>
-                    </div>
-
-                    <div class="stat-card">
-                        <div class="stat-icon disk">💾</div>
-                        <div class="stat-details">
-                            <div class="stat-label">Disco</div>
-                            <div class="stat-value" id="disk-value">0%</div>
-                            <div class="stat-change" id="disk-space">0 usado</div>
-                        </div>
-                    </div>
-
-                    <div class="stat-card">
-                        <div class="stat-icon network">📡</div>
-                        <div class="stat-details">
-                            <div class="stat-label">Red</div>
-                            <div class="stat-value" id="network-interface">-</div>
-                            <div class="stat-change" id="network-speed">↓ 0 Mbps ↑ 0 Mbps</div>
-                        </div>
-                    </div>
-
-                    <div class="stat-card">
-                        <div class="stat-icon containers">📦</div>
-                        <div class="stat-details">
-                            <div class="stat-label">Contenedores</div>
-                            <div class="stat-value" id="containers-running">0</div>
-                            <div class="stat-change" id="containers-total">de 0 total</div>
-                        </div>
-                    </div>
-
-                    <div class="stat-card">
-                        <div class="stat-icon images">💿</div>
-                        <div class="stat-details">
-                            <div class="stat-label">Imágenes</div>
-                            <div class="stat-value" id="images-count">0</div>
-                            <div class="stat-change">Disponibles</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Charts -->
-                <div class="charts-grid">
-                    <div class="chart-card">
-                        <div class="chart-header">
-                            <h3>Uso de CPU</h3>
-                            <span class="chart-badge">Tiempo real</span>
-                        </div>
-                        <div class="chart-container">
-                            <canvas id="cpuChart"></canvas>
-                        </div>
-                    </div>
-
-                    <div class="chart-card">
-                        <div class="chart-header">
-                            <h3>Uso de Memoria</h3>
-                            <span class="chart-badge">Tiempo real</span>
-                        </div>
-                        <div class="chart-container">
-                            <canvas id="memoryChart"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Containers Tab -->
-            <div id="containers-tab" class="tab-content">
-                <div id="loading" class="loading-state">
-                    <div class="spinner"></div>
-                    <p>Cargando contenedores...</p>
-                </div>
-                <div id="error" class="error-state" style="display: none;"></div>
-                <div id="containersList" class="containers-grid"></div>
-            </div>
-
-            <!-- Processes Tab -->
-            <div id="processes-tab" class="tab-content">
-                <!-- System Actions -->
-                <div class="system-actions-card">
-                    <h3>🔧 Acciones del Sistema</h3>
-                    <div class="actions-grid">
-                        <button id="rebootBtn" class="action-btn action-reboot">
-                            <span class="action-icon">🔄</span>
-                            <div class="action-details">
-                                <div class="action-title">Reiniciar Sistema</div>
-                                <div class="action-desc">Reiniciar la Orange Pi</div>
-                            </div>
-                        </button>
-                        <button id="updateBtn" class="action-btn action-update">
-                            <span class="action-icon">⬆️</span>
-                            <div class="action-details">
-                                <div class="action-title">Actualizar Sistema</div>
-                                <div class="action-desc">apt update && apt upgrade</div>
-                            </div>
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Processes List -->
-                <div class="processes-card">
-                    <div class="processes-header">
-                        <h3>🔍 Procesos del Sistema</h3>
-                        <div class="processes-stats">
-                            <span id="processes-count">Cargando...</span>
-                        </div>
-                    </div>
-                    <div class="processes-table-wrapper">
-                        <table class="processes-table">
-                            <thead>
-                                <tr>
-                                    <th>PID</th>
-                                    <th>Usuario</th>
-                                    <th>CPU %</th>
-                                    <th>MEM %</th>
-                                    <th>Comando</th>
-                                </tr>
-                            </thead>
-                            <tbody id="processesList">
-                                <tr>
-                                    <td colspan="5" class="loading-row">
-                                        <div class="spinner-sm"></div>
-                                        Cargando procesos...
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+                    <section class="panel overview-panel"><div class="panel-header"><div><p class="eyebrow">ACTIVIDAD</p><h3>Señales rápidas</h3></div><span class="muted-label">Estado del nodo</span></div><div class="signal-grid"><div><i data-lucide="wifi"></i><span>Red</span><strong id="network-speed">↓ 0 Mbps · ↑ 0 Mbps</strong></div><div><i data-lucide="layers-3"></i><span>Imágenes Docker</span><strong id="images-count">0 disponibles</strong></div><div><i data-lucide="clock-3"></i><span>Última lectura</span><strong id="signal-time">--</strong></div></div></section>
+                </section>
+                <section id="containers-tab" class="tab-content">
+                    <div class="page-heading compact-heading"><div><p class="eyebrow">ORQUESTACIÓN</p><h1>Contenedores</h1><p class="heading-copy">Supervisa y opera tus servicios desde un único lugar.</p></div><button class="primary-button" id="containers-refresh"><i data-lucide="refresh-cw"></i> Actualizar</button></div>
+                    <div class="toolbar"><div class="search-box"><i data-lucide="search"></i><input id="container-search" type="search" placeholder="Buscar por nombre o imagen..." aria-label="Buscar contenedores"></div><div class="filter-group" role="group" aria-label="Filtrar contenedores"><button class="filter-button active" data-filter="all">Todos <b id="filter-all">0</b></button><button class="filter-button" data-filter="running">Activos <b id="filter-running">0</b></button><button class="filter-button" data-filter="stopped">Detenidos <b id="filter-stopped">0</b></button></div></div>
+                    <div id="loading" class="loading-state"><span class="spinner"></span><p>Consultando servicios...</p></div><div id="error" class="error-state" hidden></div><div id="containersList" class="containers-list"></div>
+                </section>
+                <section id="processes-tab" class="tab-content">
+                    <div class="page-heading compact-heading"><div><p class="eyebrow">OBSERVABILIDAD</p><h1>Procesos del sistema</h1><p class="heading-copy">Identifica qué está consumiendo los recursos del nodo.</p></div></div>
+                    <div class="actions-strip"><div><p class="eyebrow">MANTENIMIENTO</p><h3>Acciones del sistema</h3></div><div class="action-buttons"><button class="secondary-button" id="updateBtn"><i data-lucide="download-cloud"></i> Actualizar paquetes</button><button class="danger-button" id="rebootBtn"><i data-lucide="power"></i> Reiniciar nodo</button></div></div>
+                    <section class="panel process-panel"><div class="panel-header"><div><p class="eyebrow">TOP 20</p><h3>Procesos por CPU</h3></div><span class="count-label" id="processes-count">Cargando...</span></div><div class="table-wrap"><table class="processes-table"><thead><tr><th>PID</th><th>Usuario</th><th>CPU</th><th>Memoria</th><th>Comando</th></tr></thead><tbody id="processesList"><tr><td colspan="5" class="loading-row">Cargando procesos...</td></tr></tbody></table></div></section>
+                </section>
             </div>
         </main>
     </div>
-
-    <!-- Modal de confirmación -->
-    <div id="confirmModal" class="modal">
-        <div class="modal-content modal-confirm">
-            <div class="modal-header">
-                <h2 id="confirmTitle">Confirmar Acción</h2>
-                <button class="close-btn" onclick="closeConfirmModal()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <p id="confirmMessage">¿Estás seguro de realizar esta acción?</p>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeConfirmModal()">Cancelar</button>
-                <button class="btn btn-danger" id="confirmActionBtn">Confirmar</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Modal para logs -->
-    <div id="logsModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 id="logsTitle">Logs del Contenedor</h2>
-                <button class="close-btn" onclick="closeLogsModal()">&times;</button>
-            </div>
-            <pre id="logsContent" class="logs-content">Cargando logs...</pre>
-        </div>
-    </div>
-
-    <script src="app.js"></script>
+    <div id="confirmModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle"><div class="modal-content modal-confirm"><button class="close-button" onclick="closeConfirmModal()" aria-label="Cerrar"><i data-lucide="x"></i></button><div class="modal-icon"><i data-lucide="triangle-alert"></i></div><p class="eyebrow">CONFIRMAR ACCIÓN</p><h2 id="confirmTitle">¿Continuar?</h2><p id="confirmMessage"></p><div class="modal-footer"><button class="secondary-button" onclick="closeConfirmModal()">Cancelar</button><button class="danger-button" id="confirmActionBtn">Confirmar</button></div></div></div>
+    <div id="logsModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="logsTitle"><div class="modal-content logs-modal"><div class="modal-top"><div><p class="eyebrow">OBSERVABILIDAD</p><h2 id="logsTitle">Logs del contenedor</h2></div><button class="close-button" onclick="closeLogsModal()" aria-label="Cerrar"><i data-lucide="x"></i></button></div><pre id="logsContent" class="logs-content">Cargando logs...</pre></div></div>
+    <div id="toast-region" class="toast-region" aria-live="polite"></div>
+    <script src="app.js?v=6"></script>
 </body>
 </html>
